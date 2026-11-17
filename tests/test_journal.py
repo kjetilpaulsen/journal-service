@@ -135,3 +135,15 @@ def test_raw_rows_are_portable(initialized: Journal, xdg):
     assert entry_date == "2026-11-18"
     assert ciphertext.startswith(b"age-encryption.org/v1\n")
     assert wrapped.startswith(b"age-encryption.org/v1\n")
+
+
+def test_read_entries_decrypts_in_order(initialized: Journal):
+    initialized.create_entry(_new("newer", tags=["b"]))
+    initialized.create_entry(_new("older", entry_date=date(2020, 5, 1)))
+    keyring = initialized.unlock(PASSWORD)
+    pairs = initialized.read_entries(keyring)
+    assert [(meta.entry_date.year, content.body) for meta, content in pairs] == [
+        (2020, "older"),
+        (2026, "newer"),
+    ]
+    assert initialized.read_entries(keyring, start=date(2021, 1, 1))[0][1].tags == ("b",)

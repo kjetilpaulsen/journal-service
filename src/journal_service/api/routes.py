@@ -3,7 +3,9 @@
     GET    /health          liveness, and whether a keypair exists          no password
     POST   /session         {"password"} -> {"token", ...}: unlock            password
     DELETE /session         lock (forget the unlocked keys)                   token
+    POST   /password        {"current_password", "new_password"}              password
     GET    /entries         ?from=YYYY-MM-DD&to=YYYY-MM-DD: metadata list     no password
+    GET    /entries         ...&content=true: decrypted entries               token
     POST   /entries         {"body", "tags"?, "written_at"? | "entry_date"?}  no password
     GET    /entries/{id}    decrypted entry                                   token
     PUT    /entries/{id}    {"body", "tags"?}: replace content                token
@@ -75,9 +77,20 @@ async def close_session(request: Request) -> Response:
     return Response(status_code=204)
 
 
+async def change_password(request: Request) -> Response:
+    current, new = parsing.password_change(await parsing.json_object(request))
+    await run_in_threadpool(_journal(request).change_password, current, new)
+    return Response(status_code=204)
+
+
 async def list_entries(request: Request) -> Response:
-    start, end = parsing.date_range(request.query_params)
-    metas = await run_in_threadpool(_journal(request).list_entries, start=start, end=end)
+    start, end, content = parsing.list_query(request.query_params)
+    journal = _journal(request)
+    if content:
+        keyring = _keyring(request)
+        entries = await run_in_threadpool(journal.read_entries, keyring, start=start, end=end)
+        return JSONResponse({"entries": [_entry_json(meta, c) for meta, c in entries]})
+    metas = await run_in_threadpool(journal.list_entries, start=start, end=end)
     return JSONResponse({"entries": [_meta_json(meta) for meta in metas]})
 
 
@@ -114,6 +127,7 @@ ROUTES = [
     Route("/health", health, methods=["GET"]),
     Route("/session", open_session, methods=["POST"]),
     Route("/session", close_session, methods=["DELETE"]),
+    Route("/password", change_password, methods=["POST"]),
     Route("/entries", list_entries, methods=["GET"]),
     Route("/entries", create_entry, methods=["POST"]),
     Route("/entries/{entry_id:uuid}", read_entry, methods=["GET"]),

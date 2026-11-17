@@ -152,3 +152,35 @@ def test_sessions_have_a_maximum_lifetime():
     else:
         pytest.fail("session outlived max_lifetime")
     assert now[0] > 3600
+
+
+def test_list_with_content_needs_a_session(client: TestClient):
+    client.post("/entries", json={"body": "searchable text", "tags": ["work"]})
+    client.post("/entries", json={"body": "older", "entry_date": "2019-03-04"})
+    assert client.get("/entries", params={"content": "true"}).status_code == 401
+
+    headers = _unlock(client)
+    entries = client.get("/entries", params={"content": "true"}, headers=headers).json()["entries"]
+    assert [(e["entry_date"], e["body"], e["tags"]) for e in entries] == [
+        ("2019-03-04", "older", []),
+        ("2026-11-18", "searchable text", ["work"]),
+    ]
+    filtered = client.get(
+        "/entries", params={"content": "true", "from": "2020-01-01"}, headers=headers
+    ).json()["entries"]
+    assert [e["body"] for e in filtered] == ["searchable text"]
+    assert client.get("/entries", params={"content": "maybe"}).status_code == 422
+
+
+def test_change_password_over_the_api(client: TestClient):
+    def change(current: str, new: str | None = None) -> int:
+        body = {"current_password": current} | ({"new_password": new} if new is not None else {})
+        return client.post("/password", json=body).status_code
+
+    new = "a brand new passphrase"
+    assert change("wrong one", new) == 401
+    assert change(PASSWORD, "short") == 422
+    assert change(PASSWORD) == 422
+    assert change(PASSWORD, new) == 204
+    assert client.post("/session", json={"password": PASSWORD}).status_code == 401
+    assert client.post("/session", json={"password": new}).status_code == 201

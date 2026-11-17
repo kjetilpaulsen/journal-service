@@ -74,7 +74,9 @@ All requests go over the Unix socket. There is no TCP port, and the container ha
 | GET | `/health` | – | status, and whether `init` has run |
 | POST | `/session` | password | unlock → `{"token", "idle_timeout_seconds", ...}` |
 | DELETE | `/session` | token | lock |
+| POST | `/password` | password | change it: `{"current_password", "new_password"}` |
 | GET | `/entries?from=YYYY-MM-DD&to=YYYY-MM-DD` | – | metadata list, oldest first |
+| GET | `/entries?content=true` (+ `from`/`to`) | token | the same list, decrypted (for search) |
 | POST | `/entries` | – | create: `{"body", "tags"?, "written_at"? \| "entry_date"?}` |
 | GET | `/entries/{id}` | token | decrypted entry |
 | PUT | `/entries/{id}` | token | replace `{"body", "tags"?}` |
@@ -123,8 +125,9 @@ printf 'Authorization: Bearer %s' "$TOKEN" | api -H @- -X DELETE http://localhos
 
 - **Logs:** `podman logs -f journal-service`, or `~/.local/state/journal-service/logs/`.
   Entry bodies, tags, passwords and tokens are never logged.
-- **Change password:** `podman exec -it journal-service journal-service passwd`. Open
-  sessions keep working because the key itself does not change.
+- **Change password:** `p` in journal-cli, `POST /password`, or
+  `podman exec -it journal-service journal-service passwd`. Open sessions keep working
+  because the key itself does not change.
 - **Update:** `podman build -t journal-service . && systemctl --user restart journal-service`.
   Migrations run automatically on start. A restart locks all sessions.
 - **Backup:** `sqlite3 ~/.local/share/journal-service/journal.db ".backup '/path/journal-$(date +%F).db'"`

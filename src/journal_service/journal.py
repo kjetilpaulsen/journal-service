@@ -8,9 +8,10 @@ import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
+from typing import Any
 from uuid import UUID, uuid7
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from journal_service.crypto import envelope, keys
@@ -195,12 +196,7 @@ class Journal:
             Entry.created_at,
             Entry.updated_at,
         )
-        if start is not None:
-            query = query.where(Entry.entry_date >= start)
-        if end is not None:
-            query = query.where(Entry.entry_date <= end)
-        # Explicit NULLS FIRST: SQLite and PostgreSQL disagree on the default.
-        query = query.order_by(Entry.entry_date, Entry.written_at.asc().nulls_first(), Entry.id)
+        query = _in_order(_in_range(query, start, end))
         with self._sessions() as session:
             return [
                 EntryMeta(
@@ -213,20 +209,20 @@ class Journal:
                 for row in session.execute(query)
             ]
 
+    def read_entries(
+        self, keyring: Keyring, *, start: date | None = None, end: date | None = None
+    ) -> list[tuple[EntryMeta, EntryContent]]:
+        """Decrypt many entries at once (what a client needs for tag and text search)."""
+        query = _in_order(_in_range(select(Entry), start, end))
+        with self._sessions() as session:
+            return [(_meta(entry), _open(entry, keyring)) for entry in session.scalars(query)]
+
     def read_entry(self, entry_id: UUID, keyring: Keyring) -> tuple[EntryMeta, EntryContent]:
         with self._sessions() as session:
             entry = session.get(Entry, entry_id)
             if entry is None:
                 raise EntryNotFound(f"no entry {entry_id}")
-            identity = keyring.get(entry.key_id)
-            if identity is None:
-                raise Unauthorized(
-                    "this session does not hold the key for that entry; unlock again"
-                )
-            payload = envelope.unseal(
-                entry.ciphertext, identity, entry_id=entry.id, entry_date=entry.entry_date
-            )
-            return _meta(entry), EntryContent(body=payload.body, tags=payload.tags)
+            return _meta(entry), _open(entry, keyring)
 
     def update_entry(self, entry_id: UUID, content: EntryContent) -> EntryMeta:
         with self._sessions.begin() as session:
@@ -258,6 +254,29 @@ class Journal:
         if key is None:
             raise NotInitialized("no keypair yet; run `journal-service init`")
         return key
+
+
+def _in_range[Q: Select[Any]](query: Q, start: date | None, end: date | None) -> Q:
+    if start is not None:
+        query = query.where(Entry.entry_date >= start)
+    if end is not None:
+        query = query.where(Entry.entry_date <= end)
+    return query
+
+
+def _in_order[Q: Select[Any]](query: Q) -> Q:
+    # Explicit NULLS FIRST: SQLite and PostgreSQL disagree on the default.
+    return query.order_by(Entry.entry_date, Entry.written_at.asc().nulls_first(), Entry.id)
+
+
+def _open(entry: Entry, keyring: Keyring) -> EntryContent:
+    identity = keyring.get(entry.key_id)
+    if identity is None:
+        raise Unauthorized("this session does not hold the key for that entry; unlock again")
+    payload = envelope.unseal(
+        entry.ciphertext, identity, entry_id=entry.id, entry_date=entry.entry_date
+    )
+    return EntryContent(body=payload.body, tags=payload.tags)
 
 
 def _local_time(written_at: datetime | None, offset_minutes: int | None) -> datetime | None:

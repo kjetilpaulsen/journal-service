@@ -61,13 +61,27 @@ def content(data: Mapping[str, Any]) -> EntryContent:
     return _content(data)
 
 
-def date_range(query: Mapping[str, str]) -> tuple[date | None, date | None]:
-    _only(query, {"from", "to"})
+def list_query(query: Mapping[str, str]) -> tuple[date | None, date | None, bool]:
+    """?from=YYYY-MM-DD&to=YYYY-MM-DD&content=true -> (start, end, include content)."""
+    _only(query, {"from", "to", "content"})
     start = _date(query["from"], "from") if "from" in query else None
     end = _date(query["to"], "to") if "to" in query else None
     if start is not None and end is not None and start > end:
         raise ValidationFailed("'from' must not be after 'to'")
-    return start, end
+    content = query.get("content", "false").lower()
+    if content not in ("true", "false"):
+        raise ValidationFailed("content must be true or false")
+    return start, end, content == "true"
+
+
+def password_change(data: Mapping[str, Any]) -> tuple[str, str]:
+    _only(data, {"current_password", "new_password"})
+    current, new = data.get("current_password"), data.get("new_password")
+    if not isinstance(current, str) or not current:
+        raise ValidationFailed("current_password must be a non-empty string")
+    if not isinstance(new, str):
+        raise ValidationFailed("new_password must be a string")
+    return current, new
 
 
 def _only(data: Mapping[str, Any], allowed: set[str]) -> None:
