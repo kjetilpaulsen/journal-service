@@ -1,0 +1,47 @@
+# Rootless Podman Quadlet unit for journal-service.
+#
+#   podman build -t journal-service .
+#   install -Dm644 deploy/journal-service.container ~/.config/containers/systemd/journal-service.container
+#   systemctl --user daemon-reload
+#   systemctl --user start journal-service
+#
+# The [Install] section starts it with your user session; `loginctl enable-linger` keeps it
+# running while you are logged out.
+
+[Unit]
+Description=journal-service (encrypted journal backend)
+
+[Container]
+Image=localhost/journal-service:latest
+ContainerName=journal-service
+
+# Run as the image's uid 10001, mapped to your own host uid: files on the host stay yours.
+UserNS=keep-id:uid=10001,gid=10001
+
+# No network at all. The API is reachable only through the Unix socket in the runtime dir.
+Network=none
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+
+# The host's timezone, so "now" in new entries is your local time.
+Timezone=local
+
+# Host XDG directories -> $XDG_*_HOME/journal-service inside the container.
+Volume=%h/.config/journal-service:/xdg/config/journal-service:ro
+Volume=%h/.local/share/journal-service:/xdg/data/journal-service
+Volume=%h/.local/state/journal-service:/xdg/state/journal-service
+Volume=%h/.cache/journal-service:/xdg/cache/journal-service
+Volume=%t/journal-service:/xdg/runtime/journal-service
+
+HealthCmd=journal-service healthcheck
+HealthInterval=10m
+HealthOnFailure=kill
+
+[Service]
+# Podman refuses to bind-mount a source that does not exist.
+ExecStartPre=/usr/bin/mkdir -p -m 0700 %h/.config/journal-service %h/.local/share/journal-service %h/.local/state/journal-service %h/.cache/journal-service %t/journal-service
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

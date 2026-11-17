@@ -1,17 +1,44 @@
 [project]
 name = "journal-service"
 version = "0.1.0"
-description = "Add your description here"
+description = "Backend and database for the journal app: encrypted entries in SQLite behind a local HTTP API"
 readme = "README.md"
-authors = [
-    { name = "kjetilpaulsen", email = "kjetil_paulsen@hotmail.com" }
-]
+authors = [{ name = "Kjetil" }]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "alembic>=1.20.1",
+    "pyrage>=1.4.0",
+    "sqlalchemy>=2.1.9",
+    "starlette>=1.10.0",
+    "uvicorn>=0.54.0",
+]
 
 [project.scripts]
-journal-service = "journal_service:main"
+journal-service = "journal_service.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.13.5,<0.14.0"]
+requires = ["uv_build>=0.13.9,<0.14.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.2",
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+]
+
+# Developer entry point for `uv run alembic ...`. The service runs migrations itself on
+# startup; the database URL always comes from journal-service's own settings.
+[tool.alembic]
+script_location = "%(here)s/src/journal_service/migrations"
+file_template = "%%(rev)s_%%(slug)s"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
