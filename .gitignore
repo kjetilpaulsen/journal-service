@@ -12,3 +12,9 @@ wheels/
 # Tool caches
 .pytest_cache/
 .ruff_cache/
+
+# Never commit journal data, even encrypted
+*.db
+*.db-shm
+*.db-wal
+*.age
